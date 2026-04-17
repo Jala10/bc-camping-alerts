@@ -379,8 +379,9 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
     else:
         print("\nNo new openings since last run.")
 
-    state["available"] = curr_available
-    save_state(state)
+    if not dry_run:
+        state["available"] = curr_available
+        save_state(state)
     print(f"Done — tracking {len(curr_available)} available slot(s).")
 
 

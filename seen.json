@@ -1,12 +1,3 @@
 {
-  "available": {
-    "Cultus Lake|2026-07-02|2": true,
-    "Cultus Lake|2026-07-09|2": true,
-    "Cultus Lake|2026-07-16|2": true,
-    "Golden Ears|2026-07-02|2": true,
-    "Golden Ears|2026-07-09|2": true,
-    "Golden Ears|2026-07-10|2": true,
-    "Golden Ears|2026-07-16|2": true,
-    "Rolley Lake|2026-07-09|2": true
-  }
+  "available": {}
 }
