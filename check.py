@@ -5,7 +5,7 @@ Usage:
   python check.py                           # normal run — check + notify
   python check.py --list-parks              # list all BC Parks IDs and exit
   python check.py --list-sites "Alice Lake" # list sites/maps for a park
-  python check.py --debug                   # print raw API responses
+  python check.py --debug                   # verbose API output
 """
 
 import argparse
@@ -13,7 +13,8 @@ import json
 import os
 import smtplib
 import time
-from datetime import date, datetime, timedelta
+from collections import defaultdict
+from datetime import date, datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -23,10 +24,10 @@ import requests
 try:
     from config import (
         EMAIL_FROM, EMAIL_TO, MONITOR_END, MONITOR_START,
-        NTFY_TOPIC, PARKS, RESEND_HOURS, STAY_COMBOS,
+        NTFY_TOPIC, PARKS, STAY_COMBOS,
     )
 except ImportError:
-    print("ERROR: config.py not found — copy it and edit your park / email settings.")
+    print("ERROR: config.py not found — copy it and edit your settings.")
     raise SystemExit(1)
 
 BASE_URL = "https://camping.bcparks.ca"
@@ -42,20 +43,31 @@ HEADERS = {
 }
 STATE_FILE = Path(__file__).parent / "seen.json"
 
-# Map title keywords that identify non-standard areas to skip
+# Map title keywords → skip (user requested no walk-in / group / backcountry)
 SKIP_MAP_KEYWORDS = ("walk-in", "walk in", "walkin", "group", "backcountry",
                      "back country", "day use", "day-use")
 
+# GoingToCamp availability flag that means "has bookable sites for this equipment"
+AVAILABLE_FLAG = 7
+
 
 # ---------------------------------------------------------------------------
-# State helpers (de-duplication across runs)
+# State  (tracks which park+date combinations were available on the prior run)
 # ---------------------------------------------------------------------------
+# seen.json: {"available": {"park|date|nights": true, ...}}
+#
+# We alert only when a key appears in the current run but was absent from the
+# previous run — i.e. the park+date just became bookable (opening day or
+# a cancellation after being fully sold out).
 
 def load_state() -> dict:
     if STATE_FILE.exists():
         with open(STATE_FILE) as f:
-            return json.load(f)
-    return {}
+            data = json.load(f)
+        if "available" not in data:          # migrate old format
+            return {"available": {}}
+        return data
+    return {"available": {}}
 
 
 def save_state(state: dict) -> None:
@@ -63,32 +75,18 @@ def save_state(state: dict) -> None:
         json.dump(state, f, indent=2, sort_keys=True)
 
 
-def prune_state(state: dict, days: int = 30) -> dict:
-    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
-    return {k: v for k, v in state.items() if v >= cutoff}
-
-
-def already_notified(state: dict, key: str) -> bool:
-    if key not in state:
-        return False
-    last = datetime.fromisoformat(state[key])
-    return (datetime.utcnow() - last).total_seconds() < RESEND_HOURS * 3600
-
-
-def mark_notified(state: dict, key: str) -> None:
-    state[key] = datetime.utcnow().isoformat()
-
-
 # ---------------------------------------------------------------------------
 # Date helpers
 # ---------------------------------------------------------------------------
 
 def upcoming_stays() -> list[tuple[date, int, str]]:
-    """All (checkin_date, nights, label) combos in the monitor range."""
     today = date.today()
+    # BC Parks opens reservations exactly 90 days in advance.
+    # Checking beyond that window wastes API calls (always returns [0]).
+    booking_horizon = today + timedelta(days=90)
     stays: list[tuple[date, int, str]] = []
     current = max(MONITOR_START, today)
-    while current <= MONITOR_END:
+    while current <= min(MONITOR_END, booking_horizon):
         for checkin_wd, nights, label in STAY_COMBOS:
             if current.weekday() == checkin_wd:
                 stays.append((current, nights, label))
@@ -97,7 +95,7 @@ def upcoming_stays() -> list[tuple[date, int, str]]:
 
 
 # ---------------------------------------------------------------------------
-# BC Parks API helpers
+# BC Parks API
 # ---------------------------------------------------------------------------
 
 def api_get(path: str, params: dict):
@@ -107,28 +105,47 @@ def api_get(path: str, params: dict):
     return resp.json()
 
 
-def get_campsite_maps(resource_location_id: int) -> list[dict]:
-    """Return dicts {map_id, title} for regular campsite loops only."""
+def get_park_maps(resource_location_id: int) -> dict:
+    """Return {root_map_id, campsite_map_ids: set[str]} for a park.
+
+    root_map_id   — the overview/0-site map; queried to get mapLinkAvailabilities
+    campsite_map_ids — sub-map IDs for regular campsites (walk-in/group excluded)
+    """
     maps = api_get("/api/maps", {"resourceLocationId": resource_location_id})
-    result = []
+    root_map_id = None
+    campsite_map_ids: set[str] = set()
+
     for m in maps:
         title = next(
             (v.get("title", "") for v in m.get("localizedValues", [])), ""
         )
         num_sites = len(m.get("mapResources", []))
+
         if num_sites == 0:
+            root_map_id = m["mapId"]   # overview map has no direct sites
             continue
+
         if any(kw in title.lower() for kw in SKIP_MAP_KEYWORDS):
             continue
-        result.append({"map_id": m["mapId"], "title": title})
-    return result
+
+        campsite_map_ids.add(str(m["mapId"]))
+
+    return {"root_map_id": root_map_id, "campsite_map_ids": campsite_map_ids}
 
 
-def fetch_availability(map_id: int, checkin: date, nights: int) -> dict:
-    """Check which sites in a map are available for (checkin, nights)."""
+def has_availability(root_map_id: int, campsite_map_ids: set,
+                     checkin: date, nights: int,
+                     debug: bool = False) -> bool:
+    """True when any campsite sub-map has available sites (flag == 7).
+
+    How the BC Parks API signals availability via the root/overview map:
+      mapLinkAvailabilities[sub_map_id] == [7]  →  bookable sites exist
+      mapLinkAvailabilities[sub_map_id] == [1]  →  fully booked
+      mapLinkAvailabilities[sub_map_id] == [0]  →  booking window not open yet
+    """
     checkout = checkin + timedelta(days=nights)
-    return api_get("/api/availability/map", {
-        "mapId": map_id,
+    data = api_get("/api/availability/map", {
+        "mapId": root_map_id,
         "bookingCategoryId": 0,
         "equipmentId": -32768,
         "subEquipmentId": -32768,
@@ -138,43 +155,28 @@ def fetch_availability(map_id: int, checkin: date, nights: int) -> dict:
         "isReserving": "true",
         "partySize": 1,
     })
+    mla: dict = data.get("mapLinkAvailabilities", {})
 
-
-def available_sites(data: dict, filter_sites: list,
-                    debug: bool = False) -> list[str]:
-    """Extract site IDs where availability > 0."""
     if debug:
-        snippet = json.dumps(data, indent=2)[:3000]
-        print(snippet)
-        if len(json.dumps(data)) > 3000:
-            print("… (truncated)")
+        print(f"      mapLinkAvailabilities: {mla}")
 
-    resource_avail: dict = data.get("resourceAvailabilities", {})
-    if not resource_avail and debug:
-        print("WARNING: 'resourceAvailabilities' missing — keys:", list(data.keys()))
-
-    found = []
-    for site_id, avail_list in resource_avail.items():
-        if filter_sites and int(site_id) not in filter_sites:
-            continue
-        if isinstance(avail_list, list) and avail_list:
-            avail = avail_list[0].get("availability", 0)
-            if isinstance(avail, int) and avail > 0:
-                found.append(site_id)
-    return found
+    for map_id_str, flags in mla.items():
+        if map_id_str in campsite_map_ids and AVAILABLE_FLAG in flags:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
-# Notifications
+# Notifications  (one batched email per run)
 # ---------------------------------------------------------------------------
 
-def booking_url(resource_location_id: int, map_id: int,
+def booking_url(resource_location_id: int, root_map_id: int,
                 checkin: date, nights: int) -> str:
     checkout = checkin + timedelta(days=nights)
     return (
-        f"https://camping.bcparks.ca/create-booking/results"
+        "https://camping.bcparks.ca/create-booking/results"
         f"?resourceLocationId={resource_location_id}"
-        f"&mapId={map_id}"
+        f"&mapId={root_map_id}"
         f"&searchTabGroupId=0&bookingCategoryId=0&nights={nights}"
         f"&isReserving=true&equipmentId=-32768&subEquipmentId=-32768"
         f"&partySize=1&startDate={checkin.isoformat()}"
@@ -186,17 +188,20 @@ def send_email(subject: str, body: str) -> None:
     gmail_user = os.environ.get("GMAIL_USER", EMAIL_FROM)
     gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
     if not gmail_pass:
-        print("    [email] GMAIL_APP_PASSWORD not set — skipping email.")
+        print("  [email] GMAIL_APP_PASSWORD not set — skipping.")
         return
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"]    = gmail_user
     msg["To"]      = ", ".join(EMAIL_TO)
     msg.attach(MIMEText(body, "plain"))
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-        smtp.login(gmail_user, gmail_pass)
-        smtp.sendmail(gmail_user, EMAIL_TO, msg.as_string())
-    print(f"    [email] Sent to {len(EMAIL_TO)} recipient(s).")
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(gmail_user, gmail_pass)
+            smtp.sendmail(gmail_user, EMAIL_TO, msg.as_string())
+        print(f"  [email] Sent to {len(EMAIL_TO)} recipient(s).")
+    except Exception as e:
+        print(f"  [email] Failed: {e}")
 
 
 def send_ntfy(title: str, message: str, url: str) -> None:
@@ -215,28 +220,42 @@ def send_ntfy(title: str, message: str, url: str) -> None:
             },
             timeout=10,
         )
-        print("    [ntfy] Push notification sent.")
+        print("  [ntfy] Push notification sent.")
     except Exception as e:
-        print(f"    [ntfy] Failed: {e}")
+        print(f"  [ntfy] Failed: {e}")
 
 
-def notify(park_name: str, site_id: str, checkin: date, nights: int,
-           label: str, resource_location_id: int, map_id: int) -> None:
-    checkout = checkin + timedelta(days=nights)
-    url = booking_url(resource_location_id, map_id, checkin, nights)
-    subject = f"BC Parks available: {park_name} — {label} ({checkin})"
-    body = (
-        f"Campsite availability alert!\n\n"
-        f"Park:    {park_name}\n"
-        f"Site:    #{site_id}\n"
-        f"Dates:   {checkin} → {checkout}  ({label}, {nights} nights)\n\n"
-        f"Book now:\n{url}\n"
-    )
+def send_summary(new_findings: list) -> None:
+    """One email + ntfy per run listing all new openings, grouped by park."""
+    total = len(new_findings)
+    subject = f"BC Parks: {total} new opening(s) found!"
+    checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    lines = [f"BC Parks Availability Alert — {total} new opening(s)!\n",
+             f"Checked: {checked_at}\n"]
+    prev_park = None
+    for f in sorted(new_findings, key=lambda x: (x["park"], x["checkin"], x["nights"])):
+        if f["park"] != prev_park:
+            lines.append(f"\n{'─'*40}")
+            lines.append(f"{f['park']}")
+            prev_park = f["park"]
+        checkout = f["checkin"] + timedelta(days=f["nights"])
+        lines.append(
+            f"  {f['label']:14}  {f['checkin']} – {checkout}  ({f['nights']} nights)"
+        )
+        lines.append(f"  Book: {f['url']}")
+
+    body = "\n".join(lines)
     send_email(subject, body)
+
+    first = new_findings[0]
     send_ntfy(
-        title=f"BC Parks: {park_name}",
-        message=f"Site #{site_id} open {label} ({checkin} – {checkout})",
-        url=url,
+        title=subject,
+        message="\n".join(
+            f"{f['park']} · {f['label']} {f['checkin']}"
+            for f in sorted(new_findings, key=lambda x: (x["park"], x["checkin"]))[:8]
+        ),
+        url=first["url"],
     )
 
 
@@ -273,9 +292,11 @@ def cmd_list_sites(park_name: str) -> None:
         )
         sites = m.get("mapResources", [])
         site_ids = sorted(abs(s["resourceId"]) for s in sites)
-        print(f"\n  map_id={m['mapId']}  \"{title}\"  ({len(sites)} sites)")
-        if sites:
-            print(f"  site IDs: {site_ids[:10]}{'...' if len(site_ids)>10 else ''}")
+        skip = any(kw in title.lower() for kw in SKIP_MAP_KEYWORDS)
+        flag = "  (skipped)" if skip or len(sites) == 0 else ""
+        print(f"\n  map_id={m['mapId']}  \"{title}\"  ({len(sites)} sites){flag}")
+        if sites and not skip:
+            print(f"  site IDs: {site_ids[:10]}{'...' if len(site_ids) > 10 else ''}")
 
 
 # ---------------------------------------------------------------------------
@@ -283,71 +304,87 @@ def cmd_list_sites(park_name: str) -> None:
 # ---------------------------------------------------------------------------
 
 def run(debug: bool = False) -> None:
-    state  = load_state()
-    state  = prune_state(state)
-    stays  = upcoming_stays()
+    state = load_state()
+    prev_available: dict = state.get("available", {})
+    curr_available: dict = {}
 
+    stays = upcoming_stays()
     if not stays:
         print("No upcoming weekend stays in the monitor range.")
-        save_state(state)
+        save_state({"available": {}})
         return
 
     print(f"Checking {len(stays)} date/night combos across {len(PARKS)} parks …\n")
-    new_alerts = 0
+
+    new_findings: list = []
 
     for park_name, park_cfg in PARKS.items():
         loc_id = park_cfg["resource_location_id"]
-        filter_sites = park_cfg.get("sites", [])
 
         print(f"{'─'*50}")
         print(f"{park_name}")
 
         try:
-            camp_maps = get_campsite_maps(loc_id)
+            park_maps = get_park_maps(loc_id)
         except Exception as e:
             print(f"  Could not fetch maps: {e}")
             continue
 
-        if not camp_maps:
-            print("  No campsite maps found (all filtered out).")
+        root_id = park_maps["root_map_id"]
+        campsite_ids = park_maps["campsite_map_ids"]
+
+        if root_id is None:
+            print("  No root/overview map found — skipping.")
+            continue
+        if not campsite_ids:
+            print("  No campsite maps found.")
             continue
 
-        print(f"  Maps: {[m['title'] or str(m['map_id']) for m in camp_maps]}")
+        print(f"  Root map: {root_id}  |  Campsite sub-maps: {campsite_ids}")
 
         for checkin, nights, label in stays:
-            for cmap in camp_maps:
-                map_id = cmap["map_id"]
-                try:
-                    data = fetch_availability(map_id, checkin, nights)
-                except Exception as e:
-                    print(f"  [{label} {checkin}] API error: {e}")
-                    continue
+            key = f"{park_name}|{checkin}|{nights}"
+            try:
+                avail = has_availability(root_id, campsite_ids, checkin, nights,
+                                         debug=debug)
+            except Exception as e:
+                print(f"  [{label} {checkin}] API error: {e}")
+                continue
 
-                sites = available_sites(data, filter_sites, debug=debug)
+            if avail:
+                curr_available[key] = True
+                if key not in prev_available:
+                    url = booking_url(loc_id, root_id, checkin, nights)
+                    new_findings.append({
+                        "park": park_name,
+                        "checkin": checkin,
+                        "nights": nights,
+                        "label": label,
+                        "url": url,
+                    })
+                    print(f"  + NEW [{label} {checkin}] — available!")
+                elif debug:
+                    print(f"  [{label} {checkin}] available (already known)")
 
-                for site_id in sites:
-                    key = f"{park_name}|{site_id}|{checkin}|{nights}"
-                    if already_notified(state, key):
-                        continue
-                    print(f"  *** [{label} {checkin}] Site #{site_id} AVAILABLE — notifying!")
-                    notify(park_name, site_id, checkin, nights, label, loc_id, map_id)
-                    mark_notified(state, key)
-                    new_alerts += 1
+            time.sleep(0.2)
 
-                time.sleep(0.2)  # be polite to the API
+    if new_findings:
+        print(f"\n{len(new_findings)} new opening(s) — sending summary …")
+        send_summary(new_findings)
+    else:
+        print("\nNo new openings since last run.")
 
+    state["available"] = curr_available
     save_state(state)
-    print(f"\nDone — {new_alerts} new alert(s) sent.")
+    print(f"Done — tracking {len(curr_available)} available slot(s).")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="BC Parks campsite availability checker"
     )
-    parser.add_argument("--list-parks", action="store_true",
-                        help="List all BC Parks resource IDs")
-    parser.add_argument("--list-sites", metavar="PARK_NAME",
-                        help='List maps/sites for a park, e.g. "Alice Lake"')
+    parser.add_argument("--list-parks", action="store_true")
+    parser.add_argument("--list-sites", metavar="PARK_NAME")
     parser.add_argument("--debug", action="store_true",
                         help="Print raw API responses")
     args = parser.parse_args()

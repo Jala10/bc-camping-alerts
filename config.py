@@ -75,9 +75,3 @@ EMAIL_TO   = [
 # Set to "" to disable push notifications.
 NTFY_TOPIC = ""   # e.g. "bc-camping-yourname-2026"
 
-# ---------------------------------------------------------------------------
-# Alert de-duplication
-# ---------------------------------------------------------------------------
-# Hours before re-alerting for the same site + date combo.
-# Prevents notification floods if a site stays open for hours.
-RESEND_HOURS = 6
