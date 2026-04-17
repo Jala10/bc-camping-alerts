@@ -303,7 +303,7 @@ def cmd_list_sites(park_name: str) -> None:
 # Main checker loop
 # ---------------------------------------------------------------------------
 
-def run(debug: bool = False) -> None:
+def run(debug: bool = False, dry_run: bool = False) -> None:
     state = load_state()
     prev_available: dict = state.get("available", {})
     curr_available: dict = {}
@@ -369,8 +369,13 @@ def run(debug: bool = False) -> None:
             time.sleep(0.2)
 
     if new_findings:
-        print(f"\n{len(new_findings)} new opening(s) — sending summary …")
-        send_summary(new_findings)
+        if dry_run:
+            print(f"\n{len(new_findings)} new opening(s) found (dry-run — notifications skipped).")
+            for f in sorted(new_findings, key=lambda x: (x["park"], x["checkin"])):
+                print(f"  {f['park']} · {f['label']} {f['checkin']} → {f['url']}")
+        else:
+            print(f"\n{len(new_findings)} new opening(s) — sending summary …")
+            send_summary(new_findings)
     else:
         print("\nNo new openings since last run.")
 
@@ -387,6 +392,8 @@ def main() -> None:
     parser.add_argument("--list-sites", metavar="PARK_NAME")
     parser.add_argument("--debug", action="store_true",
                         help="Print raw API responses")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Check availability but skip all notifications")
     args = parser.parse_args()
 
     if args.list_parks:
@@ -394,7 +401,7 @@ def main() -> None:
     elif args.list_sites:
         cmd_list_sites(args.list_sites)
     else:
-        run(debug=args.debug)
+        run(debug=args.debug, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":
