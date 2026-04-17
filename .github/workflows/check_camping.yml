@@ -1,0 +1,46 @@
+name: Check BC Parks Availability
+
+on:
+  schedule:
+    # Every 30 minutes — free tier fits ~1 400 min/month (well under 2 000 limit)
+    - cron: "*/30 * * * *"
+  workflow_dispatch:  # Allow manual trigger from GitHub Actions tab
+
+permissions:
+  contents: write   # Needed to commit seen.json back to the repo
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Fetch with token so we can push seen.json back
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run availability check
+        env:
+          GMAIL_USER:         ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NTFY_TOPIC:         ${{ secrets.NTFY_TOPIC }}
+        run: python check.py
+
+      - name: Save state (commit seen.json if changed)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add seen.json
+          git diff --staged --quiet || git commit -m "chore: update seen [skip ci]"
+          git push
