@@ -81,9 +81,9 @@ def save_state(state: dict) -> None:
 
 def upcoming_stays() -> list[tuple[date, int, str]]:
     today = date.today()
-    # BC Parks opens reservations exactly 90 days in advance.
-    # Checking beyond that window wastes API calls (always returns [0]).
-    booking_horizon = today + timedelta(days=90)
+    # BC Parks opens reservations ~3 calendar months ahead (91-92 days).
+    # Use 95 days to avoid missing boundary dates.
+    booking_horizon = today + timedelta(days=95)
     stays: list[tuple[date, int, str]] = []
     current = max(MONITOR_START, today)
     while current <= min(MONITOR_END, booking_horizon):
