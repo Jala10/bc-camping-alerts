@@ -46,8 +46,7 @@ MONITOR_END   = date(2026, 9, 30)
 # weekday(): Mon=0  Tue=1  Wed=2  Thu=3  Fri=4  Sat=5  Sun=6
 # ---------------------------------------------------------------------------
 STAY_COMBOS = [
-    (4, 2, "Fri+Sat"),   # check-in Friday,    2 nights
-    (5, 2, "Sat+Sun"),   # check-in Saturday,  2 nights
+    (4, 2, "Fri+Sat"),   # check-in Friday, 2 nights
 ]
 
 # ---------------------------------------------------------------------------
