@@ -2,8 +2,8 @@ name: Check BC Parks Availability
 
 on:
   schedule:
-    # Every hour — ~720 min/month, well under the 2 000 min free-tier limit
-    - cron: "0 * * * *"
+    # Every 15 minutes — free on public repos (unlimited Actions minutes)
+    - cron: "*/15 * * * *"
   workflow_dispatch:  # Allow manual trigger from GitHub Actions tab
 
 permissions:

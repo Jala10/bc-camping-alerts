@@ -81,15 +81,21 @@ def save_state(state: dict) -> None:
 
 def upcoming_stays() -> list[tuple[date, int, str]]:
     today = date.today()
-    # BC Parks opens reservations ~3 calendar months ahead (91-92 days).
-    # Use 95 days to avoid missing boundary dates.
+    # BC Parks opens reservations ~91 days in advance.
+    # Use 95-day horizon to catch boundary dates early, but only alert once
+    # the entire stay (including checkout night) is within the open window.
+    # This prevents pre-open bleed: our API query endDate=checkout accidentally
+    # picks up the next day's pre-release sites (not yet bookable but showing [7]).
     booking_horizon = today + timedelta(days=95)
+    open_limit = today + timedelta(days=91)  # last date BC Parks has opened
     stays: list[tuple[date, int, str]] = []
     current = max(MONITOR_START, today)
     while current <= min(MONITOR_END, booking_horizon):
         for checkin_wd, nights, label in STAY_COMBOS:
             if current.weekday() == checkin_wd:
-                stays.append((current, nights, label))
+                checkout = current + timedelta(days=nights)
+                if checkout <= open_limit:
+                    stays.append((current, nights, label))
         current += timedelta(days=1)
     return stays
 
@@ -332,6 +338,11 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
 
         root_id = park_maps["root_map_id"]
         campsite_ids = park_maps["campsite_map_ids"]
+
+        excluded = {str(i) for i in park_cfg.get("excluded_map_ids", [])}
+        if excluded:
+            campsite_ids = campsite_ids - excluded
+            print(f"  Excluded map(s): {excluded}")
 
         if root_id is None:
             print("  No root/overview map found — skipping.")

@@ -27,6 +27,10 @@ PARKS = {
     "Golden Ears": {
         "resource_location_id": -2147483606,
         "sites": [],
+        # Gold Creek map (-2147483573) has hike-in H/F sites that are always
+        # available, causing backward bleed into Fri queries via Wed check-ins.
+        # Alouette South/North + North Beach still cover ~257 drive-in sites.
+        "excluded_map_ids": [-2147483573],
     },
     "Porteau Cove": {
         "resource_location_id": -2147483550,
@@ -69,5 +73,4 @@ EMAIL_TO   = [
 # 2. Install the ntfy app → subscribe to that topic on every device
 # 3. Set the same topic in GitHub Secrets as NTFY_TOPIC (overrides this value)
 # Set to "" to disable push notifications.
-NTFY_TOPIC = ""   # e.g. "bc-camping-yourname-2026"
-
+NTFY_TOPIC = "bc-camping-jala-2026"   # e.g. "bc-camping-yourname-2026"
