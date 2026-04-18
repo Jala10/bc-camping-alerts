@@ -112,14 +112,14 @@ def api_get(path: str, params: dict):
 
 
 def get_park_maps(resource_location_id: int) -> dict:
-    """Return {root_map_id, campsite_map_ids: set[str]} for a park.
+    """Return {root_map_id, campsite_maps: dict[str, str]} for a park.
 
     root_map_id   — the overview/0-site map; queried to get mapLinkAvailabilities
-    campsite_map_ids — sub-map IDs for regular campsites (walk-in/group excluded)
+    campsite_maps — {map_id_str: section_name} for regular campsites (walk-in/group excluded)
     """
     maps = api_get("/api/maps", {"resourceLocationId": resource_location_id})
     root_map_id = None
-    campsite_map_ids: set[str] = set()
+    campsite_maps: dict = {}  # map_id_str -> section name
 
     for m in maps:
         title = next(
@@ -134,23 +134,23 @@ def get_park_maps(resource_location_id: int) -> dict:
         if any(kw in title.lower() for kw in SKIP_MAP_KEYWORDS):
             continue
 
-        campsite_map_ids.add(str(m["mapId"]))
+        campsite_maps[str(m["mapId"])] = title.strip()
 
-    return {"root_map_id": root_map_id, "campsite_map_ids": campsite_map_ids}
+    return {"root_map_id": root_map_id, "campsite_maps": campsite_maps}
 
 
-def has_availability(root_map_id: int, campsite_map_ids: set,
-                     checkin: date, nights: int,
-                     debug: bool = False) -> bool:
-    """True when any campsite sub-map has available sites (flag == 7).
+def get_available_sections(root_map_id: int, campsite_maps: dict,
+                           checkin: date, nights: int,
+                           debug: bool = False) -> dict:
+    """Return {section_name: site_count} for sections with bookable sites.
 
-    How the BC Parks API signals availability via the root/overview map:
-      mapLinkAvailabilities[sub_map_id] == [7]  →  bookable sites exist
-      mapLinkAvailabilities[sub_map_id] == [1]  →  fully booked
-      mapLinkAvailabilities[sub_map_id] == [0]  →  booking window not open yet
+    Two-step approach:
+      1. Root map mapLinkAvailabilities — which sub-maps have flag [7]?
+      2. Sub-map resourceAvailabilities — count sites with availability==7.
+    Empty dict means nothing available.
     """
     checkout = checkin + timedelta(days=nights)
-    data = api_get("/api/availability/map", {
+    params = {
         "mapId": root_map_id,
         "bookingCategoryId": 0,
         "equipmentId": -32768,
@@ -160,16 +160,35 @@ def has_availability(root_map_id: int, campsite_map_ids: set,
         "nights": nights,
         "isReserving": "true",
         "partySize": 1,
-    })
-    mla: dict = data.get("mapLinkAvailabilities", {})
+    }
+    mla: dict = api_get("/api/availability/map", params).get("mapLinkAvailabilities", {})
 
     if debug:
         print(f"      mapLinkAvailabilities: {mla}")
 
+    sections = {}
     for map_id_str, flags in mla.items():
-        if map_id_str in campsite_map_ids and AVAILABLE_FLAG in flags:
-            return True
-    return False
+        if map_id_str not in campsite_maps or AVAILABLE_FLAG not in flags:
+            continue
+        section_name = campsite_maps[map_id_str]
+        try:
+            sub_params = {**params, "mapId": int(map_id_str)}
+            ra = api_get("/api/availability/map", sub_params).get("resourceAvailabilities", {})
+            count = sum(
+                1 for v in ra.values()
+                if any(item.get("availability") == AVAILABLE_FLAG for item in v)
+            )
+            if count > 0:
+                sections[section_name] = count
+            elif debug:
+                print(f"      {section_name}: root [7] but no sites with flag=7 in sub-map")
+        except Exception as e:
+            sections[section_name] = "?"
+            if debug:
+                print(f"      {section_name}: sub-map query failed: {e}")
+        time.sleep(0.2)
+
+    return sections
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +268,12 @@ def send_summary(new_findings: list) -> None:
         lines.append(
             f"  {f['label']:14}  {f['checkin']} – {checkout}  ({f['nights']} nights)"
         )
-        lines.append(f"  Book: {f['url']}")
+        if f.get("sections"):
+            sec = ", ".join(
+                f"{s} ({c} site{'s' if c != 1 else ''})" for s, c in f["sections"].items()
+            )
+            lines.append(f"  Where:  {sec}")
+        lines.append(f"  Book:   {f['url']}")
 
     body = "\n".join(lines)
     send_email(subject, body)
@@ -259,6 +283,8 @@ def send_summary(new_findings: list) -> None:
         title=subject,
         message="\n".join(
             f"{f['park']} · {f['label']} {f['checkin']}"
+            + (f" · {', '.join(f'{s}({c})' for s, c in f['sections'].items())}"
+               if f.get("sections") else "")
             for f in sorted(new_findings, key=lambda x: (x["park"], x["checkin"]))[:8]
         ),
         url=first["url"],
@@ -337,45 +363,48 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
             continue
 
         root_id = park_maps["root_map_id"]
-        campsite_ids = park_maps["campsite_map_ids"]
+        campsite_maps = park_maps["campsite_maps"]
 
         excluded = {str(i) for i in park_cfg.get("excluded_map_ids", [])}
         if excluded:
-            campsite_ids = campsite_ids - excluded
+            campsite_maps = {k: v for k, v in campsite_maps.items() if k not in excluded}
             print(f"  Excluded map(s): {excluded}")
 
         if root_id is None:
             print("  No root/overview map found — skipping.")
             continue
-        if not campsite_ids:
+        if not campsite_maps:
             print("  No campsite maps found.")
             continue
 
-        print(f"  Root map: {root_id}  |  Campsite sub-maps: {campsite_ids}")
+        print(f"  Root map: {root_id}  |  Sections: {list(campsite_maps.values())}")
 
         for checkin, nights, label in stays:
             key = f"{park_name}|{checkin}|{nights}"
             try:
-                avail = has_availability(root_id, campsite_ids, checkin, nights,
-                                         debug=debug)
+                avail_sections = get_available_sections(root_id, campsite_maps, checkin, nights,
+                                                        debug=debug)
             except Exception as e:
                 print(f"  [{label} {checkin}] API error: {e}")
                 continue
 
-            if avail:
+            if avail_sections:
                 curr_available[key] = True
                 if key not in prev_available:
                     url = booking_url(loc_id, root_id, checkin, nights)
+                    sections_str = ", ".join(f"{s} ({c})" for s, c in avail_sections.items())
                     new_findings.append({
                         "park": park_name,
                         "checkin": checkin,
                         "nights": nights,
                         "label": label,
                         "url": url,
+                        "sections": avail_sections,
                     })
-                    print(f"  + NEW [{label} {checkin}] — available!")
+                    print(f"  + NEW [{label} {checkin}] — {sections_str}")
                 elif debug:
-                    print(f"  [{label} {checkin}] available (already known)")
+                    sections_str = ", ".join(f"{s} ({c})" for s, c in avail_sections.items())
+                    print(f"  [{label} {checkin}] available (already known): {sections_str}")
 
             time.sleep(0.2)
 
