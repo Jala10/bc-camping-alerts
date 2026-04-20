@@ -13,7 +13,6 @@ import json
 import os
 import smtplib
 import time
-from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -42,7 +41,6 @@ HEADERS = {
     "Referer": "https://camping.bcparks.ca/",
 }
 STATE_FILE = Path(__file__).parent / "seen.json"
-SITE_NAMES_FILE = Path(__file__).parent / "site_names.json"
 
 # Map title keywords → skip (user requested no walk-in / group / backcountry)
 SKIP_MAP_KEYWORDS = ("walk-in", "walk in", "walkin", "group", "backcountry",
@@ -80,7 +78,7 @@ def save_state(state: dict) -> None:
 # Date helpers
 # ---------------------------------------------------------------------------
 
-def upcoming_stays() -> list[tuple[date, int, str]]:
+def upcoming_stays():
     today = date.today()
     # BC Parks opens reservations ~91 days in advance.
     # Use 95-day horizon to catch boundary dates early, but only alert once
@@ -89,7 +87,7 @@ def upcoming_stays() -> list[tuple[date, int, str]]:
     # picks up the next day's pre-release sites (not yet bookable but showing [7]).
     booking_horizon = today + timedelta(days=95)
     open_limit = today + timedelta(days=91)  # last date BC Parks has opened
-    stays: list[tuple[date, int, str]] = []
+    stays = []
     current = max(MONITOR_START, today)
     while current <= min(MONITOR_END, booking_horizon):
         for checkin_wd, nights, label in STAY_COMBOS:
@@ -105,72 +103,11 @@ def upcoming_stays() -> list[tuple[date, int, str]]:
 # BC Parks API
 # ---------------------------------------------------------------------------
 
-def api_get(path: str, params: dict, session: requests.Session | None = None):
-    caller = session or requests
-    resp = caller.get(f"{BASE_URL}{path}", params=params,
-                      headers=HEADERS, timeout=30)
+def api_get(path: str, params: dict):
+    resp = requests.get(f"{BASE_URL}{path}", params=params,
+                        headers=HEADERS, timeout=30)
     resp.raise_for_status()
     return resp.json()
-
-
-# ---------------------------------------------------------------------------
-# Authenticated session  (optional — needed for site-name lookup)
-# ---------------------------------------------------------------------------
-
-def login_session() -> "requests.Session | None":
-    email = os.environ.get("BCPARKS_EMAIL", "")
-    password = os.environ.get("BCPARKS_PASSWORD", "")
-    if not email or not password:
-        return None
-    session = requests.Session()
-    try:
-        # Fetch homepage to get initial XSRF-TOKEN cookie
-        session.get(f"{BASE_URL}/", headers=HEADERS, timeout=30)
-        xsrf = session.cookies.get("XSRF-TOKEN", "")
-        resp = session.post(
-            f"{BASE_URL}/api/auth/login",
-            json={"email": email, "password": password},
-            headers={
-                **HEADERS,
-                "content-type": "application/json",
-                "x-xsrf-token": xsrf,
-                "app-language": "en-CA",
-                "app-version": "5.109.174",
-            },
-            timeout=30,
-        )
-        if resp.status_code == 200 and session.cookies.get("isLoggedIn") == "true":
-            print("  [auth] Logged in to BC Parks.")
-            return session
-        print(f"  [auth] Login returned {resp.status_code} — continuing without auth.")
-    except Exception as e:
-        print(f"  [auth] Login failed: {e}")
-    return None
-
-
-def load_site_names() -> dict:
-    if SITE_NAMES_FILE.exists():
-        with open(SITE_NAMES_FILE) as f:
-            return json.load(f)
-    return {}
-
-
-def fetch_site_names(session: requests.Session, resource_location_id: int) -> dict:
-    """Return {resource_id_str: site_name} for a park, or {} if unavailable."""
-    try:
-        xsrf = session.cookies.get("XSRF-TOKEN", "")
-        resp = session.get(
-            f"{BASE_URL}/api/reachableresources/resourcelocationid",
-            params={"resourceLocationId": resource_location_id},
-            headers={**HEADERS, "x-xsrf-token": xsrf},
-            timeout=30,
-        )
-        data = resp.json()
-        if isinstance(data, dict) and data:
-            return {str(k): v for k, v in data.items()}
-    except Exception as e:
-        print(f"  [site-names] fetch failed for {resource_location_id}: {e}")
-    return {}
 
 
 def get_park_maps(resource_location_id: int) -> dict:
@@ -181,7 +118,7 @@ def get_park_maps(resource_location_id: int) -> dict:
     """
     maps = api_get("/api/maps", {"resourceLocationId": resource_location_id})
     root_map_id = None
-    campsite_maps: dict = {}  # map_id_str -> section name
+    campsite_maps = {}  # map_id_str -> section name
 
     for m in maps:
         title = next(
@@ -223,7 +160,7 @@ def get_available_sections(root_map_id: int, campsite_maps: dict,
         "isReserving": "true",
         "partySize": 1,
     }
-    mla: dict = api_get("/api/availability/map", params).get("mapLinkAvailabilities", {})
+    mla = api_get("/api/availability/map", params).get("mapLinkAvailabilities", {})
 
     if debug:
         print(f"      mapLinkAvailabilities: {mla}")
@@ -399,8 +336,8 @@ def cmd_list_sites(park_name: str) -> None:
 
 def run(debug: bool = False, dry_run: bool = False) -> None:
     state = load_state()
-    prev_available: dict = state.get("available", {})
-    curr_available: dict = {}
+    prev_available = state.get("available", {})
+    curr_available = {}
 
     stays = upcoming_stays()
     if not stays:
@@ -408,28 +345,9 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
         save_state({"available": {}})
         return
 
-    # Attempt authenticated login to enable site-name lookup
-    auth_session = login_session()
-    site_names: dict = load_site_names()  # {loc_id_str: {resource_id_str: name}}
+    print(f"Checking {len(stays)} date/night combos across {len(PARKS)} parks …\n")
 
-    if auth_session:
-        for park_name, park_cfg in PARKS.items():
-            loc_id = park_cfg["resource_location_id"]
-            loc_key = str(loc_id)
-            if loc_key not in site_names:
-                names = fetch_site_names(auth_session, loc_id)
-                if names:
-                    site_names[loc_key] = names
-                    print(f"  [site-names] {park_name}: {len(names)} sites mapped")
-                else:
-                    print(f"  [site-names] {park_name}: no data returned (endpoint may still require cart session)")
-        if not dry_run:
-            with open(SITE_NAMES_FILE, "w") as f:
-                json.dump(site_names, f, indent=2, sort_keys=True)
-
-    print(f"\nChecking {len(stays)} date/night combos across {len(PARKS)} parks …\n")
-
-    new_findings: list = []
+    new_findings = []
 
     for park_name, park_cfg in PARKS.items():
         loc_id = park_cfg["resource_location_id"]
@@ -460,8 +378,6 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
 
         print(f"  Root map: {root_id}  |  Sections: {list(campsite_maps.values())}")
 
-        park_site_names = site_names.get(str(loc_id), {})
-
         for checkin, nights, label in stays:
             key = f"{park_name}|{checkin}|{nights}"
             try:
@@ -483,7 +399,6 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
                         "label": label,
                         "url": url,
                         "sections": avail_sections,
-                        "site_names": park_site_names,
                     })
                     print(f"  + NEW [{label} {checkin}] — {sections_str}")
                 elif debug:

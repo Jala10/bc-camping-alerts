@@ -35,8 +35,6 @@ jobs:
           GMAIL_USER:         ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           NTFY_TOPIC:         ${{ secrets.NTFY_TOPIC }}
-          BCPARKS_EMAIL:      ${{ secrets.BCPARKS_EMAIL }}
-          BCPARKS_PASSWORD:   ${{ secrets.BCPARKS_PASSWORD }}
         run: python check.py
 
       - name: Save state (commit seen.json if changed)
