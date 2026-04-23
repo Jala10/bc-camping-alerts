@@ -250,6 +250,27 @@ def send_email(subject: str, body: str) -> None:
         print(f"  [email] Failed: {e}")
 
 
+def send_whatsapp(message: str) -> None:
+    recipients_env = os.environ.get("WHATSAPP_RECIPIENTS", "")
+    if not recipients_env:
+        return
+    for entry in recipients_env.split(","):
+        entry = entry.strip()
+        if ":" not in entry:
+            continue
+        phone, apikey = entry.split(":", 1)
+        try:
+            requests.get(
+                "https://api.callmebot.com/whatsapp.php",
+                params={"phone": phone.strip(), "text": message, "apikey": apikey.strip()},
+                timeout=10,
+            )
+            print(f"  [whatsapp] Sent to {phone.strip()}.")
+        except Exception as e:
+            print(f"  [whatsapp] Failed for {phone.strip()}: {e}")
+        time.sleep(1)  # avoid CallMeBot rate limiting between recipients
+
+
 def send_ntfy(title: str, message: str, url: str) -> None:
     topic = os.environ.get("NTFY_TOPIC", NTFY_TOPIC)
     if not topic:
@@ -322,6 +343,16 @@ def send_summary(new_findings: list) -> None:
             n = len(d.get("sites", []))
             parts.append(f"{s}({n})")
         return ", ".join(parts)
+
+    whatsapp_lines = [subject]
+    for f in sorted(new_findings, key=lambda x: (x["park"], x["checkin"], x["nights"])):
+        checkout = f["checkin"] + timedelta(days=f["nights"])
+        line = f"{f['park']} · {f['label']} {f['checkin']}–{checkout}"
+        if f.get("sections"):
+            line += f" · {_ntfy_sec(f['sections'])}"
+        whatsapp_lines.append(line)
+    whatsapp_lines.append(f"\nBook at: {first['url']}")
+    send_whatsapp("\n".join(whatsapp_lines))
 
     send_ntfy(
         title=subject,

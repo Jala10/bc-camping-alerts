@@ -32,9 +32,10 @@ jobs:
 
       - name: Run availability check
         env:
-          GMAIL_USER:         ${{ secrets.GMAIL_USER }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          NTFY_TOPIC:         ${{ secrets.NTFY_TOPIC }}
+          GMAIL_USER:           ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD:   ${{ secrets.GMAIL_APP_PASSWORD }}
+          NTFY_TOPIC:           ${{ secrets.NTFY_TOPIC }}
+          WHATSAPP_RECIPIENTS:  ${{ secrets.WHATSAPP_RECIPIENTS }}
         run: python check.py
 
       - name: Save state (commit seen.json if changed)
