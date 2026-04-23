@@ -36,6 +36,11 @@ PARKS = {
         "resource_location_id": -2147483550,
         "sites": [],
     },
+    "Porpoise Bay": {
+        "resource_location_id": -2147483551,
+        "sites": [],
+        # Sechelt, Sunshine Coast — requires BC Ferries (Horseshoe Bay → Langdale), ~2.2h total
+    },
 }
 
 # ---------------------------------------------------------------------------

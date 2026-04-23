@@ -35,7 +35,7 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
     "Referer": "https://camping.bcparks.ca/",
 }
-AVAILABLE_FLAG = 7
+AVAILABLE_FLAG = 0   # 0 = green/fully-available; 7 = purple/partial (not fully bookable)
 SKIP_MAP_KEYWORDS = ("walk-in", "walk in", "walkin", "group", "backcountry",
                      "back country", "day use", "day-use")
 
