@@ -389,7 +389,10 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
         save_state({"available": {}})
         return
 
-    print(f"Checking {len(stays)} date/night combos across {len(PARKS)} parks …\n")
+    print(f"Checking {len(stays)} date/night combos across {len(PARKS)} parks …")
+    for checkin, nights, label in stays:
+        print(f"  {label}  {checkin} – {checkin + timedelta(days=nights)}")
+    print()
 
     new_findings = []
 
