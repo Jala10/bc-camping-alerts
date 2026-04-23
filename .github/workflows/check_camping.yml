@@ -2,8 +2,8 @@ name: Check BC Parks Availability
 
 on:
   schedule:
-    # Every 15 minutes — free on public repos (unlimited Actions minutes)
-    - cron: "*/15 * * * *"
+    # Every 5 minutes — GitHub's minimum reliable interval (free on public repos)
+    - cron: "*/5 * * * *"
   workflow_dispatch:  # Allow manual trigger from GitHub Actions tab
 
 permissions:

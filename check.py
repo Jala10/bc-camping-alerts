@@ -111,41 +111,58 @@ def api_get(path: str, params: dict):
 
 
 def get_park_maps(resource_location_id: int) -> dict:
-    """Return {root_map_id, campsite_maps: dict[str, str]} for a park.
+    """Return {root_map_id, campsite_maps, site_names} for a park.
 
     root_map_id   — the overview/0-site map; queried to get mapLinkAvailabilities
     campsite_maps — {map_id_str: section_name} for regular campsites (walk-in/group excluded)
+    site_names    — {map_id_str: {resource_id_str: display_name}}
     """
     maps = api_get("/api/maps", {"resourceLocationId": resource_location_id})
     root_map_id = None
     campsite_maps = {}  # map_id_str -> section name
+    site_names = {}     # map_id_str -> {resource_id_str -> display_name}
 
     for m in maps:
         title = next(
             (v.get("title", "") for v in m.get("localizedValues", [])), ""
         )
-        num_sites = len(m.get("mapResources", []))
+        resources = m.get("mapResources", [])
 
-        if num_sites == 0:
+        if len(resources) == 0:
             root_map_id = m["mapId"]   # overview map has no direct sites
             continue
 
         if any(kw in title.lower() for kw in SKIP_MAP_KEYWORDS):
             continue
 
-        campsite_maps[str(m["mapId"])] = title.strip()
+        map_id_str = str(m["mapId"])
+        campsite_maps[map_id_str] = title.strip()
 
-    return {"root_map_id": root_map_id, "campsite_maps": campsite_maps}
+        names = {}
+        for r in resources:
+            rid = str(r.get("resourceId", ""))
+            name = next(
+                (v.get(f, "").strip()
+                 for v in r.get("localizedValues", [])
+                 for f in ("name", "title", "shortName", "fullName")
+                 if v.get(f, "").strip()),
+                str(abs(int(rid))) if rid else "?"
+            )
+            if rid:
+                names[rid] = name
+        site_names[map_id_str] = names
+
+    return {"root_map_id": root_map_id, "campsite_maps": campsite_maps, "site_names": site_names}
 
 
-def get_available_sections(root_map_id: int, campsite_maps: dict,
+def get_available_sections(root_map_id: int, campsite_maps: dict, site_names: dict,
                            checkin: date, nights: int,
                            debug: bool = False) -> dict:
-    """Return {section_name: site_count} for sections with bookable sites.
+    """Return {section_name: {"map_id": int, "sites": [(resource_id_str, display_name)]}} for bookable sections.
 
     Two-step approach:
       1. Root map mapLinkAvailabilities — which sub-maps have flag [7]?
-      2. Sub-map resourceAvailabilities — count sites with availability==7.
+      2. Sub-map resourceAvailabilities — collect individual sites with availability==7.
     Empty dict means nothing available.
     """
     checkout = checkin + timedelta(days=nights)
@@ -170,19 +187,21 @@ def get_available_sections(root_map_id: int, campsite_maps: dict,
         if map_id_str not in campsite_maps or AVAILABLE_FLAG not in flags:
             continue
         section_name = campsite_maps[map_id_str]
+        names = site_names.get(map_id_str, {})
         try:
             sub_params = {**params, "mapId": int(map_id_str)}
             ra = api_get("/api/availability/map", sub_params).get("resourceAvailabilities", {})
-            count = sum(
-                1 for v in ra.values()
-                if any(item.get("availability") == AVAILABLE_FLAG for item in v)
-            )
-            if count > 0:
-                sections[section_name] = count
+            avail_sites = [
+                (sid, names.get(sid, str(abs(int(sid)))))
+                for sid, entries in ra.items()
+                if any(item.get("availability") == AVAILABLE_FLAG for item in entries)
+            ]
+            if avail_sites:
+                sections[section_name] = {"map_id": int(map_id_str), "sites": avail_sites}
             elif debug:
                 print(f"      {section_name}: root [7] but no sites with flag=7 in sub-map")
         except Exception as e:
-            sections[section_name] = "?"
+            sections[section_name] = {"map_id": int(map_id_str), "sites": [], "error": str(e)}
             if debug:
                 print(f"      {section_name}: sub-map query failed: {e}")
         time.sleep(0.2)
@@ -194,18 +213,21 @@ def get_available_sections(root_map_id: int, campsite_maps: dict,
 # Notifications  (one batched email per run)
 # ---------------------------------------------------------------------------
 
-def booking_url(resource_location_id: int, root_map_id: int,
-                checkin: date, nights: int) -> str:
+def booking_url(resource_location_id: int, map_id: int,
+                checkin: date, nights: int, resource_id: str = None) -> str:
     checkout = checkin + timedelta(days=nights)
-    return (
+    url = (
         "https://camping.bcparks.ca/create-booking/results"
         f"?resourceLocationId={resource_location_id}"
-        f"&mapId={root_map_id}"
+        f"&mapId={map_id}"
         f"&searchTabGroupId=0&bookingCategoryId=0&nights={nights}"
         f"&isReserving=true&equipmentId=-32768&subEquipmentId=-32768"
         f"&partySize=1&startDate={checkin.isoformat()}"
         f"&endDate={checkout.isoformat()}"
     )
+    if resource_id:
+        url += f"&resourceId={resource_id}"
+    return url
 
 
 def send_email(subject: str, body: str) -> None:
@@ -255,6 +277,8 @@ def send_summary(new_findings: list) -> None:
     subject = f"BC Parks: {total} new opening(s) found!"
     checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+    MAX_SITES_PER_SECTION = 5
+
     lines = [f"BC Parks Availability Alert — {total} new opening(s)!\n",
              f"Checked: {checked_at}\n"]
     prev_park = None
@@ -268,22 +292,42 @@ def send_summary(new_findings: list) -> None:
             f"  {f['label']:14}  {f['checkin']} – {checkout}  ({f['nights']} nights)"
         )
         if f.get("sections"):
-            sec = ", ".join(
-                f"{s} ({c} site{'s' if c != 1 else ''})" for s, c in f["sections"].items()
-            )
-            lines.append(f"  Where:  {sec}")
-        lines.append(f"  Book:   {f['url']}")
+            loc_id = f["loc_id"]
+            for sec_name, sec_data in f["sections"].items():
+                sites = sec_data.get("sites", [])
+                sec_map_id = sec_data.get("map_id")
+                n = len(sites)
+                if n == 0:
+                    lines.append(f"    {sec_name}  (availability detected but site details unavailable)")
+                    lines.append(f"    Book:  {f['url']}")
+                    continue
+                lines.append(f"    {sec_name}  ·  {n} site{'s' if n != 1 else ''} available")
+                for sid, sname in sites[:MAX_SITES_PER_SECTION]:
+                    site_url = booking_url(loc_id, sec_map_id, f["checkin"], f["nights"], resource_id=sid)
+                    lines.append(f"      {sname:<10}  →  {site_url}")
+                if n > MAX_SITES_PER_SECTION:
+                    section_url = booking_url(loc_id, sec_map_id, f["checkin"], f["nights"])
+                    lines.append(f"      … and {n - MAX_SITES_PER_SECTION} more  →  {section_url}")
+        else:
+            lines.append(f"  Book:   {f['url']}")
 
     body = "\n".join(lines)
     send_email(subject, body)
 
     first = new_findings[0]
+
+    def _ntfy_sec(sections):
+        parts = []
+        for s, d in sections.items():
+            n = len(d.get("sites", []))
+            parts.append(f"{s}({n})")
+        return ", ".join(parts)
+
     send_ntfy(
         title=subject,
         message="\n".join(
             f"{f['park']} · {f['label']} {f['checkin']}"
-            + (f" · {', '.join(f'{s}({c})' for s, c in f['sections'].items())}"
-               if f.get("sections") else "")
+            + (f" · {_ntfy_sec(f['sections'])}" if f.get("sections") else "")
             for f in sorted(new_findings, key=lambda x: (x["park"], x["checkin"]))[:8]
         ),
         url=first["url"],
@@ -363,6 +407,7 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
 
         root_id = park_maps["root_map_id"]
         campsite_maps = park_maps["campsite_maps"]
+        site_names = park_maps["site_names"]
 
         excluded = {str(i) for i in park_cfg.get("excluded_map_ids", [])}
         if excluded:
@@ -381,8 +426,8 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
         for checkin, nights, label in stays:
             key = f"{park_name}|{checkin}|{nights}"
             try:
-                avail_sections = get_available_sections(root_id, campsite_maps, checkin, nights,
-                                                        debug=debug)
+                avail_sections = get_available_sections(root_id, campsite_maps, site_names,
+                                                        checkin, nights, debug=debug)
             except Exception as e:
                 print(f"  [{label} {checkin}] API error: {e}")
                 continue
@@ -391,18 +436,23 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
                 curr_available[key] = True
                 if key not in prev_available:
                     url = booking_url(loc_id, root_id, checkin, nights)
-                    sections_str = ", ".join(f"{s} ({c})" for s, c in avail_sections.items())
+                    sections_str = ", ".join(
+                        f"{s} ({len(d.get('sites', []))})" for s, d in avail_sections.items()
+                    )
                     new_findings.append({
                         "park": park_name,
                         "checkin": checkin,
                         "nights": nights,
                         "label": label,
                         "url": url,
+                        "loc_id": loc_id,
                         "sections": avail_sections,
                     })
                     print(f"  + NEW [{label} {checkin}] — {sections_str}")
                 elif debug:
-                    sections_str = ", ".join(f"{s} ({c})" for s, c in avail_sections.items())
+                    sections_str = ", ".join(
+                        f"{s} ({len(d.get('sites', []))})" for s, d in avail_sections.items()
+                    )
                     print(f"  [{label} {checkin}] available (already known): {sections_str}")
 
             time.sleep(0.2)

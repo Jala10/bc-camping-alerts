@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "WebSearch",
-      "Bash(python scout.py --discover)"
+      "Bash(python scout.py --discover)",
+      "Bash(python -c \"import check; print\\('syntax OK'\\)\")",
+      "Bash(python check.py --dry-run)",
+      "Bash(python -c \"import json; d=json.load\\(open\\('seen.json'\\)\\); print\\(json.dumps\\(d, indent=2\\)\\)\")"
     ]
   }
 }
