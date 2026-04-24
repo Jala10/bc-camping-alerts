@@ -27,10 +27,9 @@ PARKS = {
     "Golden Ears": {
         "resource_location_id": -2147483606,
         "sites": [],
-        # Gold Creek map (-2147483573) has hike-in H/F sites that are always
-        # available, causing backward bleed into Fri queries via Wed check-ins.
-        # Alouette South/North + North Beach still cover ~257 drive-in sites.
-        "excluded_map_ids": [-2147483573],
+        # Gold Creek (-2147483573): hike-in only, causes availability bleed.
+        # North Beach (-2147483572): no flush toilets — excluded per preference.
+        "excluded_map_ids": [-2147483573, -2147483572],
     },
     "Porteau Cove": {
         "resource_location_id": -2147483550,
