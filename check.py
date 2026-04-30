@@ -127,7 +127,14 @@ def get_resource_info(resource_location_id: int) -> dict:
         name = (lv[0].get("name", "").strip() if lv else "") or str(abs(int(rid_str)))
         partners = [str(lr["linkedResourceId"]) for lr in res.get("linkedResources", [])
                     if lr.get("linkedResourceType") == 2]
-        info[rid_str] = {"name": name, "is_double": bool(partners), "partner_ids": partners}
+        desc = (lv[0].get("description", "").strip() if lv else "")
+        info[rid_str] = {
+            "name": name,
+            "description": desc,
+            "order": res.get("order", 0),
+            "is_double": bool(partners),
+            "partner_ids": partners,
+        }
     return info
 
 
@@ -340,9 +347,12 @@ def send_summary(new_findings: list) -> None:
                     lines.append(f"    Book:  {f['url']}")
                     continue
                 lines.append(f"    {sec_name}  ·  {n} site{'s' if n != 1 else ''} available")
+                res_info = f.get("resource_info", {})
                 for sid, sname in sites[:MAX_SITES_PER_SECTION]:
                     site_url = booking_url(loc_id, sec_map_id, f["checkin"], f["nights"], resource_id=sid)
-                    lines.append(f"      {sname:<10}  →  {site_url}")
+                    desc = res_info.get(sid, {}).get("description", "")
+                    note = f"  [{desc}]" if desc and "double with site" not in desc.lower() else ""
+                    lines.append(f"      {sname:<10}  →  {site_url}{note}")
                 if n > MAX_SITES_PER_SECTION:
                     section_url = booking_url(loc_id, sec_map_id, f["checkin"], f["nights"])
                     lines.append(f"      … and {n - MAX_SITES_PER_SECTION} more  →  {section_url}")
@@ -499,6 +509,7 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
                                                   for p in avail_partners)
                                 sname = f"{sname}+{pnames} ★"
                         annotated.append((sid, sname))
+                    annotated.sort(key=lambda x: resource_info.get(x[0], {}).get("order", 0))
                     sec_data["sites"] = annotated
 
                 curr_available[key] = True
@@ -515,6 +526,7 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
                         "url": url,
                         "loc_id": loc_id,
                         "sections": avail_sections,
+                        "resource_info": resource_info,
                     })
                     print(f"  + NEW [{label} {checkin}] — {sections_str}")
                 elif debug:
