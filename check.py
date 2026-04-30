@@ -110,14 +110,37 @@ def api_get(path: str, params: dict):
     return resp.json()
 
 
+def get_resource_info(resource_location_id: int) -> dict:
+    """Return {resource_id_str: {"name": str, "is_double": bool, "partner_ids": [str]}}
+
+    Uses /api/resourcelocation/resources which returns real site names and double-site
+    pairing (linkedResourceType == 2 means the two sites form a bookable double).
+    """
+    try:
+        data = api_get("/api/resourcelocation/resources",
+                       {"resourceLocationId": resource_location_id})
+    except Exception:
+        return {}
+    info = {}
+    for rid_str, res in data.items():
+        lv = res.get("localizedValues", [])
+        name = (lv[0].get("name", "").strip() if lv else "") or str(abs(int(rid_str)))
+        partners = [str(lr["linkedResourceId"]) for lr in res.get("linkedResources", [])
+                    if lr.get("linkedResourceType") == 2]
+        info[rid_str] = {"name": name, "is_double": bool(partners), "partner_ids": partners}
+    return info
+
+
 def get_park_maps(resource_location_id: int) -> dict:
-    """Return {root_map_id, campsite_maps, site_names} for a park.
+    """Return {root_map_id, campsite_maps, site_names, resource_info} for a park.
 
     root_map_id   — the overview/0-site map; queried to get mapLinkAvailabilities
     campsite_maps — {map_id_str: section_name} for regular campsites (walk-in/group excluded)
     site_names    — {map_id_str: {resource_id_str: display_name}}
+    resource_info — {resource_id_str: {"name", "is_double", "partner_ids"}}
     """
     maps = api_get("/api/maps", {"resourceLocationId": resource_location_id})
+    resource_info = get_resource_info(resource_location_id)
     root_map_id = None
     campsite_maps = {}  # map_id_str -> section name
     site_names = {}     # map_id_str -> {resource_id_str -> display_name}
@@ -141,18 +164,12 @@ def get_park_maps(resource_location_id: int) -> dict:
         names = {}
         for r in resources:
             rid = str(r.get("resourceId", ""))
-            name = next(
-                (v.get(f, "").strip()
-                 for v in r.get("localizedValues", [])
-                 for f in ("name", "title", "shortName", "fullName")
-                 if v.get(f, "").strip()),
-                str(abs(int(rid))) if rid else "?"
-            )
             if rid:
-                names[rid] = name
+                names[rid] = resource_info.get(rid, {}).get("name", str(abs(int(rid))))
         site_names[map_id_str] = names
 
-    return {"root_map_id": root_map_id, "campsite_maps": campsite_maps, "site_names": site_names}
+    return {"root_map_id": root_map_id, "campsite_maps": campsite_maps,
+            "site_names": site_names, "resource_info": resource_info}
 
 
 def get_available_sections(root_map_id: int, campsite_maps: dict, site_names: dict,
@@ -442,6 +459,7 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
         root_id = park_maps["root_map_id"]
         campsite_maps = park_maps["campsite_maps"]
         site_names = park_maps["site_names"]
+        resource_info = park_maps["resource_info"]
 
         excluded = {str(i) for i in park_cfg.get("excluded_map_ids", [])}
         if excluded:
@@ -467,6 +485,22 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
                 continue
 
             if avail_sections:
+                # Annotate sites that are part of a fully-available double pair
+                all_avail_ids = {sid for sec in avail_sections.values()
+                                 for sid, _ in sec.get("sites", [])}
+                for sec_data in avail_sections.values():
+                    annotated = []
+                    for sid, sname in sec_data["sites"]:
+                        rinfo = resource_info.get(sid, {})
+                        if rinfo.get("is_double"):
+                            avail_partners = [p for p in rinfo["partner_ids"] if p in all_avail_ids]
+                            if avail_partners:
+                                pnames = "+".join(resource_info.get(p, {}).get("name", p)
+                                                  for p in avail_partners)
+                                sname = f"{sname}+{pnames} ★"
+                        annotated.append((sid, sname))
+                    sec_data["sites"] = annotated
+
                 curr_available[key] = True
                 if key not in prev_available:
                     url = booking_url(loc_id, root_id, checkin, nights)
