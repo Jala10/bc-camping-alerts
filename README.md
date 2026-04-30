@@ -4,7 +4,7 @@ Automated cancellation alerts for BC Parks campsites. Scans every 2 minutes via 
 
 ## What it does
 
-- Monitors **Alice Lake, Rolley Lake, Cultus Lake, Golden Ears (Alouette South/North only), Porteau Cove, and Porpoise Bay** for Fri+Sat (2-night) availability
+- Monitors **Alice Lake, Rolley Lake, Cultus Lake, Golden Ears (Alouette South/North only), Porteau Cove, and Porpoise Bay** for Friday and Saturday 1-night availability separately
 - Watches **July – September 2026**
 - Alerts include the **specific site number** and a **direct link** that lands on that exact site in the BC Parks booking flow
 - Sends one batched **email**, a **WhatsApp message** (via CallMeBot), and an **ntfy.sh push notification** when new availability is detected
@@ -81,7 +81,7 @@ The workflow's built-in `*/5` cron schedule acts as a fallback if cron-job.org h
 ```python
 PARKS = { ... }           # parks to watch
 MONITOR_START / END       # date range
-STAY_COMBOS               # check-in day + number of nights
+STAY_COMBOS               # check-in days to monitor (Fri + Sat by default)
 EMAIL_TO = [...]          # alert recipients
 NTFY_TOPIC = "..."        # ntfy.sh topic
 ```
