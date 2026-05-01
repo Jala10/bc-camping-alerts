@@ -34,12 +34,26 @@ HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
+        "Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "en-US,en;q=0.9",
+    "Origin": "https://camping.bcparks.ca",
     "Referer": "https://camping.bcparks.ca/",
 }
+
+SESSION = requests.Session()
+SESSION.headers.update(HEADERS)
+
+
+def init_session() -> None:
+    """Visit the homepage to establish a session cookie before hitting the API."""
+    try:
+        SESSION.get(BASE_URL + "/", timeout=30)
+    except Exception:
+        pass
+
+
 STATE_FILE = Path(__file__).parent / "seen.json"
 
 # Map title keywords → skip (user requested no walk-in / group / backcountry)
@@ -104,8 +118,7 @@ def upcoming_stays():
 # ---------------------------------------------------------------------------
 
 def api_get(path: str, params: dict):
-    resp = requests.get(f"{BASE_URL}{path}", params=params,
-                        headers=HEADERS, timeout=30)
+    resp = SESSION.get(f"{BASE_URL}{path}", params=params, timeout=30)
     resp.raise_for_status()
     return resp.json()
 
@@ -397,6 +410,7 @@ def send_summary(new_findings: list) -> None:
 # ---------------------------------------------------------------------------
 
 def cmd_list_parks() -> None:
+    init_session()
     locations = api_get("/api/resourceLocation", {})
     print(f"\n{'ID':>15}  Name")
     print("-" * 60)
@@ -411,6 +425,7 @@ def cmd_list_parks() -> None:
 
 
 def cmd_list_sites(park_name: str) -> None:
+    init_session()
     cfg = PARKS.get(park_name)
     if not cfg:
         print(f"Park '{park_name}' not found in config.py")
@@ -437,6 +452,7 @@ def cmd_list_sites(park_name: str) -> None:
 # ---------------------------------------------------------------------------
 
 def run(debug: bool = False, dry_run: bool = False) -> None:
+    init_session()
     state = load_state()
     prev_available = state.get("available", {})
     curr_available = {}
