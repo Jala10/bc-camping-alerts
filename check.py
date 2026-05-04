@@ -92,7 +92,9 @@ def save_state(state: dict) -> None:
 # Date helpers
 # ---------------------------------------------------------------------------
 
-def upcoming_stays():
+def upcoming_stays(combos=None):
+    if combos is None:
+        combos = STAY_COMBOS
     today = date.today()
     # BC Parks opens reservations ~91 days in advance.
     # Use 95-day horizon to catch boundary dates early, but only alert once
@@ -104,7 +106,7 @@ def upcoming_stays():
     stays = []
     current = max(MONITOR_START, today)
     while current <= min(MONITOR_END, booking_horizon):
-        for checkin_wd, nights, label in STAY_COMBOS:
+        for checkin_wd, nights, label in combos:
             if current.weekday() == checkin_wd:
                 checkout = current + timedelta(days=nights)
                 if checkout <= open_limit:
@@ -501,7 +503,10 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
 
         print(f"  Root map: {root_id}  |  Sections: {list(campsite_maps.values())}")
 
-        for checkin, nights, label in stays:
+        extra_combos = park_cfg.get("extra_combos", [])
+        park_stays = stays + (upcoming_stays(extra_combos) if extra_combos else [])
+
+        for checkin, nights, label in park_stays:
             key = f"{park_name}|{checkin}|{nights}"
             try:
                 avail_sections = get_available_sections(root_id, campsite_maps, site_names,
