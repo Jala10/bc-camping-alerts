@@ -34,7 +34,6 @@ PARKS = {
     "Porteau Cove": {
         "resource_location_id": -2147483550,
         "sites": [],
-        "extra_combos": [(5, 2, "Sat+Sun")],  # temporary: detect Jul 25 Sat night opening
     },
     "Porpoise Bay": {
         "resource_location_id": -2147483551,
