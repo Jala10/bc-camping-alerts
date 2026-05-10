@@ -55,6 +55,8 @@ MONITOR_END   = date(2026, 9, 30)
 # ---------------------------------------------------------------------------
 STAY_COMBOS = [
     (4, 2, "Fri+Sat"),   # check-in Friday, 2 nights
+    (4, 1, "Fri-only"),  # check-in Friday, 1 night — diagnostic for Fri-orphan theory
+    (6, 1, "Sun-only"),  # check-in Sunday, 1 night — catches Sun availability we lost when Sat+Sun was removed
 ]
 
 # ---------------------------------------------------------------------------
