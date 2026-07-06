@@ -45,8 +45,9 @@ PARKS = {
 # ---------------------------------------------------------------------------
 # Date range to monitor (reservations open 3 months ahead)
 # ---------------------------------------------------------------------------
-MONITOR_START = date(2026, 7, 1)
-MONITOR_END   = date(2026, 9, 30)
+# MONITOR_START = date(2026, 7, 1)   # July — already here, trip booked
+MONITOR_START = date(2026, 8, 1)
+MONITOR_END   = date(2026, 8, 31)    # August only (was 9, 30 — no Sept trip)
 
 # ---------------------------------------------------------------------------
 # Weekend stay combinations to check
