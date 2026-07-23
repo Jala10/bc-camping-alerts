@@ -63,15 +63,14 @@ STAY_COMBOS = [
 # ---------------------------------------------------------------------------
 # Email
 # ---------------------------------------------------------------------------
-# GMAIL_USER and GMAIL_APP_PASSWORD are read from environment variables /
-# GitHub Secrets — do NOT hardcode the password here.
-EMAIL_FROM = "jaktor1088@gmail.com"   # ← change to your sending Gmail
-EMAIL_TO   = [
-    "jaktor1088@gmail.com",
-    "deepikashathish@gmail.com",
-    "pamela.rubio@gmail.com",
-    # "person4@gmail.com",
-]
+# GMAIL_USER, GMAIL_APP_PASSWORD, and EMAIL_TO are read from environment
+# variables / GitHub Secrets — do NOT hardcode addresses here.
+# EMAIL_TO is a comma-separated list, e.g. "a@gmail.com,b@gmail.com"
+# Locally, export them before running check.py, e.g.:
+#   export GMAIL_USER="you@gmail.com"
+#   export EMAIL_TO="you@gmail.com,friend@gmail.com"
+EMAIL_FROM = ""   # fallback only — set GMAIL_USER env var / secret instead
+EMAIL_TO   = []   # fallback only — set EMAIL_TO env var / secret instead
 
 # ---------------------------------------------------------------------------
 # ntfy.sh push notifications (optional)

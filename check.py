@@ -272,19 +272,23 @@ def booking_url(resource_location_id: int, map_id: int,
 def send_email(subject: str, body: str) -> None:
     gmail_user = os.environ.get("GMAIL_USER", EMAIL_FROM)
     gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+    email_to = [addr.strip() for addr in os.environ.get("EMAIL_TO", "").split(",") if addr.strip()] or EMAIL_TO
     if not gmail_pass:
         print("  [email] GMAIL_APP_PASSWORD not set — skipping.")
+        return
+    if not email_to:
+        print("  [email] No recipients set (EMAIL_TO) — skipping.")
         return
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"]    = gmail_user
-    msg["To"]      = ", ".join(EMAIL_TO)
+    msg["To"]      = ", ".join(email_to)
     msg.attach(MIMEText(body, "plain"))
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
             smtp.login(gmail_user, gmail_pass)
-            smtp.sendmail(gmail_user, EMAIL_TO, msg.as_string())
-        print(f"  [email] Sent to {len(EMAIL_TO)} recipient(s).")
+            smtp.sendmail(gmail_user, email_to, msg.as_string())
+        print(f"  [email] Sent to {len(email_to)} recipient(s).")
     except Exception as e:
         print(f"  [email] Failed: {e}")
 
