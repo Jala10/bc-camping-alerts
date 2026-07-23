@@ -75,8 +75,10 @@ EMAIL_TO   = []   # fallback only — set EMAIL_TO env var / secret instead
 # ---------------------------------------------------------------------------
 # ntfy.sh push notifications (optional)
 # ---------------------------------------------------------------------------
-# 1. Pick a unique topic name, e.g. "bc-camping-yourname-2026"
+# The topic name is read from the NTFY_TOPIC env var / GitHub Secret — do NOT
+# hardcode it here: ntfy topics have no access control, so anyone who knows
+# the name can subscribe to (or publish on) it.
+# 1. Pick a hard-to-guess topic name, e.g. "bc-camping-<random-suffix>"
 # 2. Install the ntfy app → subscribe to that topic on every device
-# 3. Set the same topic in GitHub Secrets as NTFY_TOPIC (overrides this value)
-# Set to "" to disable push notifications.
-NTFY_TOPIC = "bc-camping-jala-2026"   # e.g. "bc-camping-yourname-2026"
+# 3. Set it in GitHub Secrets as NTFY_TOPIC (and export locally for testing)
+NTFY_TOPIC = ""   # fallback only — set NTFY_TOPIC env var / secret instead
