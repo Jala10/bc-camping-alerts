@@ -23,7 +23,7 @@ import requests
 try:
     from config import (
         EMAIL_FROM, EMAIL_TO, MONITOR_END, MONITOR_START,
-        NTFY_TOPIC, PARKS, STAY_COMBOS,
+        MONITOR_WINDOWS, NTFY_TOPIC, PARKS,
     )
 except ImportError:
     print("ERROR: config.py not found — copy it and edit your settings.")
@@ -93,8 +93,6 @@ def save_state(state: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def upcoming_stays(combos=None):
-    if combos is None:
-        combos = STAY_COMBOS
     today = date.today()
     # BC Parks opens reservations ~91 days in advance.
     # Use 95-day horizon to catch boundary dates early, but only alert once
@@ -104,14 +102,26 @@ def upcoming_stays(combos=None):
     booking_horizon = today + timedelta(days=95)
     open_limit = today + timedelta(days=91)  # last date BC Parks has opened
     stays = []
-    current = max(MONITOR_START, today)
-    while current <= min(MONITOR_END, booking_horizon):
-        for checkin_wd, nights, label in combos:
-            if current.weekday() == checkin_wd:
-                checkout = current + timedelta(days=nights)
-                if checkout <= open_limit:
-                    stays.append((current, nights, label))
-        current += timedelta(days=1)
+
+    # A weekday of None means "any day" — used for windows without a fixed
+    # check-in day (e.g. flexible multi-night searches).
+    def scan(start, end, window_combos):
+        current = max(start, today)
+        while current <= min(end, booking_horizon):
+            for checkin_wd, nights, label in window_combos:
+                if checkin_wd is None or current.weekday() == checkin_wd:
+                    checkout = current + timedelta(days=nights)
+                    if checkout <= open_limit:
+                        stays.append((current, nights, label))
+            current += timedelta(days=1)
+
+    if combos is not None:
+        # Legacy path: a park's "extra_combos" override, checked across the
+        # full MONITOR_START–MONITOR_END span rather than per-window.
+        scan(MONITOR_START, MONITOR_END, combos)
+    else:
+        for window in MONITOR_WINDOWS:
+            scan(window["start"], window["end"], window["combos"])
     return stays
 
 

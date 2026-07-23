@@ -43,22 +43,49 @@ PARKS = {
 }
 
 # ---------------------------------------------------------------------------
-# Date range to monitor (reservations open 3 months ahead)
+# Date windows to monitor (reservations open ~3 months ahead)
 # ---------------------------------------------------------------------------
-# MONITOR_START = date(2026, 7, 1)   # July — already here, trip booked
-MONITOR_START = date(2026, 8, 1)
-MONITOR_END   = date(2026, 9, 14)    # August + first 2 weeks of September
-
-# ---------------------------------------------------------------------------
-# Weekend stay combinations to check
-# Each entry: (check-in weekday, number of nights, label)
+# Each window has its own date range and its own stay combos.
+# A combo is (check-in weekday, number of nights, label).
 # weekday(): Mon=0  Tue=1  Wed=2  Thu=3  Fri=4  Sat=5  Sun=6
-# ---------------------------------------------------------------------------
-STAY_COMBOS = [
-    (4, 2, "Fri+Sat"),   # check-in Friday, 2 nights
-    (4, 1, "Fri-only"),  # check-in Friday, 1 night — diagnostic for Fri-orphan theory
-    (6, 1, "Sun-only"),  # check-in Sunday, 1 night — catches Sun availability we lost when Sat+Sun was removed
+# Use checkin weekday = None to match ANY day of the week (any check-in day).
+MONITOR_WINDOWS = [
+    {
+        # Weekend of Aug 7
+        "start": date(2026, 8, 7),
+        "end":   date(2026, 8, 9),
+        "combos": [
+            (4, 2, "Fri+Sat"),
+            (4, 1, "Fri-only"),
+            (6, 1, "Sun-only"),
+        ],
+    },
+    {
+        # Weekend of Aug 14
+        "start": date(2026, 8, 14),
+        "end":   date(2026, 8, 16),
+        "combos": [
+            (4, 2, "Fri+Sat"),
+            (4, 1, "Fri-only"),
+            (6, 1, "Sun-only"),
+        ],
+    },
+    {
+        # Aug 21 – Sep 7: any check-in day, 2 or 3 night stays
+        "start": date(2026, 8, 21),
+        "end":   date(2026, 9, 7),
+        "combos": [
+            (None, 2, "2-night"),
+            (None, 3, "3-night"),
+        ],
+    },
 ]
+
+# Legacy bounds — used only as the date range for any per-park "extra_combos"
+# override in PARKS (see the Golden Ears-style pattern below). Derived from
+# the windows above so there's one source of truth; do not hardcode.
+MONITOR_START = MONITOR_WINDOWS[0]["start"]
+MONITOR_END   = MONITOR_WINDOWS[-1]["end"]
 
 # ---------------------------------------------------------------------------
 # Email
