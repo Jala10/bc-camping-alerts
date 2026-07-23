@@ -47,7 +47,7 @@ PARKS = {
 # ---------------------------------------------------------------------------
 # MONITOR_START = date(2026, 7, 1)   # July — already here, trip booked
 MONITOR_START = date(2026, 8, 1)
-MONITOR_END   = date(2026, 8, 31)    # August only (was 9, 30 — no Sept trip)
+MONITOR_END   = date(2026, 9, 14)    # August + first 2 weeks of September
 
 # ---------------------------------------------------------------------------
 # Weekend stay combinations to check
