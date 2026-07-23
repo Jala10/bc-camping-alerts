@@ -71,13 +71,13 @@ MONITOR_WINDOWS = [
         ],
     },
     {
-        # Aug 21 – 31: 2 or 3 night stays checking in Wed–Sun
-        # (no Mon/Tue check-ins; a late-Aug check-in may check out in early Sept)
+        # Aug 21 – 31: 2 or 3 night stays checking in Wed–Sat
+        # (no Sun/Mon/Tue check-ins; a late-Aug check-in may check out in early Sept)
         "start": date(2026, 8, 21),
         "end":   date(2026, 8, 31),
         "combos": [
-            ((2, 3, 4, 5, 6), 2, "2-night"),
-            ((2, 3, 4, 5, 6), 3, "3-night"),
+            ((2, 3, 4, 5), 2, "2-night"),
+            ((2, 3, 4, 5), 3, "3-night"),
         ],
     },
     {
