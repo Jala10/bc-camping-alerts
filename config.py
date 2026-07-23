@@ -71,12 +71,22 @@ MONITOR_WINDOWS = [
         ],
     },
     {
-        # Aug 21 – Sep 7: any check-in day, 2 or 3 night stays
+        # Aug 21 – 31: 2 or 3 night stays checking in Wed–Sun
+        # (no Mon/Tue check-ins; a late-Aug check-in may check out in early Sept)
         "start": date(2026, 8, 21),
-        "end":   date(2026, 9, 7),
+        "end":   date(2026, 8, 31),
         "combos": [
-            (None, 2, "2-night"),
-            (None, 3, "3-night"),
+            ((2, 3, 4, 5, 6), 2, "2-night"),
+            ((2, 3, 4, 5, 6), 3, "3-night"),
+        ],
+    },
+    {
+        # Weekend of Sep 4 — the only September window worth burning API
+        # calls on; midweek Sept dates tend to have availability anyway.
+        "start": date(2026, 9, 4),
+        "end":   date(2026, 9, 6),
+        "combos": [
+            (4, 2, "Fri+Sat"),
         ],
     },
 ]

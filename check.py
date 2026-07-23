@@ -107,13 +107,20 @@ def upcoming_stays(combos=None):
     open_limit = today + timedelta(days=91)  # last date BC Parks has opened
     stays = []
 
-    # A weekday of None means "any day" — used for windows without a fixed
-    # check-in day (e.g. flexible multi-night searches).
+    # The combo weekday may be: an int (that weekday only), a tuple/list of
+    # ints (any of those weekdays), or None (any day of the week).
+    def matches(checkin_wd, day):
+        if checkin_wd is None:
+            return True
+        if isinstance(checkin_wd, (list, tuple, set)):
+            return day.weekday() in checkin_wd
+        return day.weekday() == checkin_wd
+
     def scan(start, end, window_combos):
         current = max(start, today)
         while current <= min(end, booking_horizon):
             for checkin_wd, nights, label in window_combos:
-                if checkin_wd is None or current.weekday() == checkin_wd:
+                if matches(checkin_wd, current):
                     checkout = current + timedelta(days=nights)
                     if checkout <= open_limit:
                         stays.append((current, nights, label))
