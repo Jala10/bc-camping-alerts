@@ -50,14 +50,16 @@ PARKS = {
 # weekday(): Mon=0  Tue=1  Wed=2  Thu=3  Fri=4  Sat=5  Sun=6
 # Use checkin weekday = None to match ANY day of the week (any check-in day).
 MONITOR_WINDOWS = [
+    # Only multi-night stays: alerts fire solely when a site is available for
+    # EVERY night of the stay (see AVAILABLE_FLAG in check.py). The old
+    # 1-night Fri-only/Sun-only diagnostic combos are gone — they were added
+    # to chase the orphan-night false alarms, whose real cause is now fixed.
     {
         # Weekend of Aug 7
         "start": date(2026, 8, 7),
         "end":   date(2026, 8, 9),
         "combos": [
             (4, 2, "Fri+Sat"),
-            (4, 1, "Fri-only"),
-            (6, 1, "Sun-only"),
         ],
     },
     {
@@ -66,8 +68,6 @@ MONITOR_WINDOWS = [
         "end":   date(2026, 8, 16),
         "combos": [
             (4, 2, "Fri+Sat"),
-            (4, 1, "Fri-only"),
-            (6, 1, "Sun-only"),
         ],
     },
     {

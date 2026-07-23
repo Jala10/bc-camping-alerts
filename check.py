@@ -60,8 +60,12 @@ STATE_FILE = Path(__file__).parent / "seen.json"
 SKIP_MAP_KEYWORDS = ("walk-in", "walk in", "walkin", "group", "backcountry",
                      "back country", "day use", "day-use")
 
-# GoingToCamp availability flag that means "has bookable sites for this equipment"
-AVAILABLE_FLAG = 7
+# GoingToCamp availability flags: 0 = fully available for the entire requested
+# date range; 7 = PARTIAL — some but not all nights free (e.g. Friday orphan),
+# NOT bookable for the full stay. Verified live 2026-07-23: every flag-0 site
+# had all nights individually free; every flag-7 site was missing >=1 night.
+# Alerting on 7 was the root cause of months of "1 night only" false alarms.
+AVAILABLE_FLAG = 0
 
 
 # ---------------------------------------------------------------------------
@@ -210,9 +214,10 @@ def get_available_sections(root_map_id: int, campsite_maps: dict, site_names: di
     """Return {section_name: {"map_id": int, "sites": [(resource_id_str, display_name)]}} for bookable sections.
 
     Two-step approach:
-      1. Root map mapLinkAvailabilities — which sub-maps have flag [7]?
-      2. Sub-map resourceAvailabilities — collect individual sites with availability==7.
-    Empty dict means nothing available.
+      1. Root map mapLinkAvailabilities — which sub-maps contain a fully-available site (flag 0)?
+      2. Sub-map resourceAvailabilities — collect individual sites with availability==0
+         (available for EVERY night of the stay; 7 = partial and is excluded).
+    Empty dict means nothing bookable for the full stay.
     """
     checkout = checkin + timedelta(days=nights)
     params = {
@@ -248,7 +253,7 @@ def get_available_sections(root_map_id: int, campsite_maps: dict, site_names: di
             if avail_sites:
                 sections[section_name] = {"map_id": int(map_id_str), "sites": avail_sites}
             elif debug:
-                print(f"      {section_name}: root [7] but no sites with flag=7 in sub-map")
+                print(f"      {section_name}: root flag 0 but no fully-available sites in sub-map")
         except Exception as e:
             sections[section_name] = {"map_id": int(map_id_str), "sites": [], "error": str(e)}
             if debug:
