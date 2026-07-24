@@ -71,32 +71,20 @@ MONITOR_WINDOWS = [
         ],
     },
     {
-        # Aug 21 – 31: 2 or 3 night stays checking in Thu–Sat.
-        # Max stay length is capped at 3 nights on purpose, which means a
-        # Thursday check-in can NEVER reach Sunday (Thu+3n = Thu-Fri-Sat
-        # only) — it's kept anyway as a shorter fallback option, not because
-        # it covers a full weekend. Fri and Sat check-ins are the ones that
-        # actually guarantee both Saturday AND Sunday:
+        # Aug 21 – 28: 2 or 3 night stays checking in Thu–Sat.
+        # End date capped at Fri Aug 28 so the last possible check-in is Aug
+        # 28 — this drops the Aug 29 Sat check-in entirely (no September
+        # dates at all; every stay below checks out by Aug 31 at the latest):
         #   Thu +2n = Thu-Fri (no weekend)   Thu +3n = Thu-Fri-Sat (Sat only)
         #   Fri +2n = Fri-Sat (Sat only)     Fri +3n = Fri-Sat-Sun (BOTH)
         #   Sat +2n = Sat-Sun (BOTH)         Sat +3n = Sat-Sun-Mon (BOTH)
+        # 3-night listed first: it's the priority stay for all three
+        # check-in days. 2-night is the fallback if only that's available.
         "start": date(2026, 8, 21),
-        "end":   date(2026, 8, 31),
-        # 3-night listed first: it's the priority stay for all three check-in
-        # days (full weekend for Fri/Sat, best Thu can do short of Sunday).
-        # 2-night is the fallback if only that's available.
+        "end":   date(2026, 8, 28),
         "combos": [
             ((3, 4, 5), 3, "3-night"),
             ((3, 4, 5), 2, "2-night"),
-        ],
-    },
-    {
-        # Weekend of Sep 4 — the only September window worth burning API
-        # calls on; midweek Sept dates tend to have availability anyway.
-        "start": date(2026, 9, 4),
-        "end":   date(2026, 9, 6),
-        "combos": [
-            (4, 2, "Fri+Sat"),
         ],
     },
 ]
