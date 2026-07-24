@@ -140,10 +140,21 @@ def upcoming_stays(combos=None):
 # BC Parks API
 # ---------------------------------------------------------------------------
 
-def api_get(path: str, params: dict):
-    resp = SESSION.get(f"{BASE_URL}{path}", params=params, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+def api_get(path: str, params: dict, attempts: int = 3):
+    # BC Parks intermittently 403s/timeouts under the 2-min polling cadence
+    # (esp. from CI runner IPs). Retry with backoff so one blip doesn't wipe
+    # a whole park/stay from the run.
+    last_err = None
+    for attempt in range(attempts):
+        try:
+            resp = SESSION.get(f"{BASE_URL}{path}", params=params, timeout=30)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            last_err = e
+            if attempt < attempts - 1:
+                time.sleep(2 * (attempt + 1))
+    raise last_err
 
 
 def get_resource_info(resource_location_id: int) -> dict:
@@ -539,6 +550,12 @@ def run(debug: bool = False, dry_run: bool = False) -> None:
                                                         checkin, nights, debug=debug)
             except Exception as e:
                 print(f"  [{label} {checkin}] API error: {e}")
+                # Carry the previous answer forward: a failed query is "don't
+                # know", not "gone". Without this, one transient error drops
+                # the key from seen.json and the next successful run re-alerts
+                # as if it were a brand-new opening (duplicate notifications).
+                if key in prev_available:
+                    curr_available[key] = True
                 continue
 
             if avail_sections:
