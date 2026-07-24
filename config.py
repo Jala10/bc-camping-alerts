@@ -71,13 +71,20 @@ MONITOR_WINDOWS = [
         ],
     },
     {
-        # Aug 21 – 31: 2 or 3 night stays checking in Wed–Sat
-        # (no Sun/Mon/Tue check-ins; a late-Aug check-in may check out in early Sept)
+        # Aug 21 – 31: 2 or 3 night stays checking in Thu–Sat.
+        # Max stay length is capped at 3 nights on purpose, which means a
+        # Thursday check-in can NEVER reach Sunday (Thu+3n = Thu-Fri-Sat
+        # only) — it's kept anyway as a shorter fallback option, not because
+        # it covers a full weekend. Fri and Sat check-ins are the ones that
+        # actually guarantee both Saturday AND Sunday:
+        #   Thu +2n = Thu-Fri (no weekend)   Thu +3n = Thu-Fri-Sat (Sat only)
+        #   Fri +2n = Fri-Sat (Sat only)     Fri +3n = Fri-Sat-Sun (BOTH)
+        #   Sat +2n = Sat-Sun (BOTH)         Sat +3n = Sat-Sun-Mon (BOTH)
         "start": date(2026, 8, 21),
         "end":   date(2026, 8, 31),
         "combos": [
-            ((2, 3, 4, 5), 2, "2-night"),
-            ((2, 3, 4, 5), 3, "3-night"),
+            ((3, 4, 5), 2, "2-night"),
+            ((3, 4, 5), 3, "3-night"),
         ],
     },
     {
