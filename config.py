@@ -82,9 +82,12 @@ MONITOR_WINDOWS = [
         #   Sat +2n = Sat-Sun (BOTH)         Sat +3n = Sat-Sun-Mon (BOTH)
         "start": date(2026, 8, 21),
         "end":   date(2026, 8, 31),
+        # 3-night listed first: it's the priority stay for all three check-in
+        # days (full weekend for Fri/Sat, best Thu can do short of Sunday).
+        # 2-night is the fallback if only that's available.
         "combos": [
-            ((3, 4, 5), 2, "2-night"),
             ((3, 4, 5), 3, "3-night"),
+            ((3, 4, 5), 2, "2-night"),
         ],
     },
     {
