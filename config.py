@@ -55,22 +55,6 @@ MONITOR_WINDOWS = [
     # 1-night Fri-only/Sun-only diagnostic combos are gone — they were added
     # to chase the orphan-night false alarms, whose real cause is now fixed.
     {
-        # Weekend of Aug 7
-        "start": date(2026, 8, 7),
-        "end":   date(2026, 8, 9),
-        "combos": [
-            (4, 2, "Fri+Sat"),
-        ],
-    },
-    {
-        # Weekend of Aug 14
-        "start": date(2026, 8, 14),
-        "end":   date(2026, 8, 16),
-        "combos": [
-            (4, 2, "Fri+Sat"),
-        ],
-    },
-    {
         # Aug 21 – 28: 2 or 3 night stays checking in Thu–Sat.
         # End date capped at Fri Aug 28 so the last possible check-in is Aug
         # 28 — this drops the Aug 29 Sat check-in entirely (no September
