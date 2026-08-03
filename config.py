@@ -40,6 +40,14 @@ PARKS = {
         "sites": [],
         # Sechelt, Sunshine Coast — requires BC Ferries (Horseshoe Bay → Langdale), ~2.2h total
     },
+    "Nairn Falls": {
+        "resource_location_id": -2147483564,
+        "sites": [],
+    },
+    "Silver Lake": {
+        "resource_location_id": -2147483535,
+        "sites": [],
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -55,20 +63,18 @@ MONITOR_WINDOWS = [
     # 1-night Fri-only/Sun-only diagnostic combos are gone — they were added
     # to chase the orphan-night false alarms, whose real cause is now fixed.
     {
-        # Aug 21 – 28: 2 or 3 night stays checking in Thu–Sat.
-        # End date capped at Fri Aug 28 so the last possible check-in is Aug
-        # 28 — this drops the Aug 29 Sat check-in entirely (no September
-        # dates at all; every stay below checks out by Aug 31 at the latest):
-        #   Thu +2n = Thu-Fri (no weekend)   Thu +3n = Thu-Fri-Sat (Sat only)
-        #   Fri +2n = Fri-Sat (Sat only)     Fri +3n = Fri-Sat-Sun (BOTH)
-        #   Sat +2n = Sat-Sun (BOTH)         Sat +3n = Sat-Sun-Mon (BOTH)
-        # 3-night listed first: it's the priority stay for all three
-        # check-in days. 2-night is the fallback if only that's available.
-        "start": date(2026, 8, 21),
-        "end":   date(2026, 8, 28),
+        # Aug 27 – 30 only, no spillover into Aug 31 / September.
+        # "end" caps the check-in date, not the checkout — so weekdays are
+        # restricted per combo to keep every stay's checkout <= Aug 30:
+        #   Thu +3n = Thu-Fri-Sat-Sun (checkout Aug 30)  -> Thu only
+        #   Fri +2n = Fri-Sat-Sun (checkout Aug 30)      -> Fri only
+        # 3-night is the priority stay. 2-night (Fri-Sun) is the fallback
+        # if only that's available.
+        "start": date(2026, 8, 27),
+        "end":   date(2026, 8, 30),
         "combos": [
-            ((3, 4, 5), 3, "3-night"),
-            ((3, 4, 5), 2, "2-night"),
+            (3, 3, "3-night"),
+            (4, 2, "2-night"),
         ],
     },
 ]
